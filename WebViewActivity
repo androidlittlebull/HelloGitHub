@@ -1,0 +1,586 @@
+package com.longcheng.longchengdai.ui.account;
+
+import android.content.Context;
+import android.content.Intent;
+import android.net.Uri;
+import android.os.Bundle;
+import android.text.TextUtils;
+import android.view.View;
+import android.view.Window;
+import android.webkit.CookieManager;
+import android.webkit.CookieSyncManager;
+import android.webkit.JavascriptInterface;
+import android.webkit.JsResult;
+import android.webkit.WebChromeClient;
+import android.webkit.WebSettings;
+import android.webkit.WebView;
+import android.webkit.WebViewClient;
+import android.widget.LinearLayout;
+import android.widget.RelativeLayout;
+
+import com.google.gson.Gson;
+import com.longcheng.longchengdai.MainActivity;
+import com.longcheng.longchengdai.MyApplication;
+import com.longcheng.longchengdai.R;
+import com.longcheng.longchengdai.base.BaseActivity;
+import com.longcheng.longchengdai.entity.ShareBean;
+import com.longcheng.longchengdai.ui.investment.ProductDetailActivity;
+import com.longcheng.longchengdai.ui.personalcentre.MoneyWaterActivity;
+import com.longcheng.longchengdai.ui.personalcentre.MyAwardActivity;
+import com.longcheng.longchengdai.ui.personalcentre.RepaymentCalendarActivity;
+import com.longcheng.longchengdai.utils.ConstantValues;
+import com.longcheng.longchengdai.utils.Constants;
+import com.longcheng.longchengdai.utils.PersistentCookieStore;
+
+import org.apache.http.cookie.Cookie;
+import org.json.JSONException;
+import org.json.JSONObject;
+
+import java.io.UnsupportedEncodingException;
+
+public class WebViewActivity extends BaseActivity implements View.OnClickListener {
+
+	private WebView webView;
+	private String webViewMethod;
+	private RelativeLayout headLayout;
+	private String title;
+	private String urlNow;
+	private ShareBean mShareBean;
+	private String resource = "";
+	private boolean needLogin;
+	private LinearLayout riskLayout;
+
+	/**
+	 * 封装打开WebviewActivity的默认方法，一句代码调用
+	 * 例如：WebViewActivity.start(ProductDetailActivity.this,"风险测评",Constants.BASE_h5_URL + "appraisal");
+	 *
+	 * @param context
+	 * @param title
+	 * @param url
+	 */
+	public static void start(Context context, String title, String url) {
+		Intent intent = new Intent(context, WebViewActivity.class);
+		intent.putExtra("url", url);
+		if (title != null) {
+			intent.putExtra("title", title);
+		}
+		intent.putExtra(Constants.WEBVIEW_METHOD_KEY, Constants.WEBVIEW_GET);
+		context.startActivity(intent);
+	}
+
+	/**
+	 * 封装打开WebviewActivity的默认方法，一句代码调用
+	 * 例如：WebViewActivity.start(ProductDetailActivity.this,Constants.BASE_h5_URL + "appraisal");
+	 *
+	 * @param context
+	 * @param url
+	 */
+	public static void start(Context context, String url) {
+		start(context, null, url);
+	}
+
+	@Override
+	protected void onResume() {
+		super.onResume();
+		if (needLogin && !MyApplication.getInstance().isLogin) {
+			finish();
+		} else if (needLogin && MyApplication.getInstance().isLogin) {
+			//调用h5方法刷新页面
+			if (totalInfoBean != null && totalInfoBean.data != null) {
+				String temp = new Gson().toJson(totalInfoBean.data);
+				if (TextUtils.isEmpty(temp)) {
+					webView.loadUrl("javascript:THAndroidJS.syncUserInfo()");
+				} else {
+					webView.loadUrl("javascript:THAndroidJS.syncUserInfo(" + temp + ")");
+				}
+			}
+		}
+	}
+
+	@Override
+	protected void onCreate(Bundle savedInstanceState) {
+		requestWindowFeature(Window.FEATURE_NO_TITLE);
+		super.onCreate(savedInstanceState);
+		setContentView(R.layout.activity_webview);
+		showPro();
+		findViews();
+		initData();
+	}
+
+	private void findViews() {
+		initHeadView();
+		webView = (WebView) findViewById(R.id.webview);
+		headLayout = (RelativeLayout) findViewById(R.id.head_layout);
+		riskLayout = (LinearLayout) findViewById(R.id.ll_risk_layout);
+		setOnClick(R.id.bt_webView_confirm, R.id.bt_webView_cancel);
+	}
+
+	private void initData() {
+		Intent intent = getIntent();
+		String url = intent.getStringExtra("url");
+		String params = intent.getStringExtra("params");
+		webViewMethod = intent.getStringExtra(Constants.WEBVIEW_METHOD_KEY);
+		try {
+			title = intent.getStringExtra("title");
+			if (title != null) {
+				//除“帮助中心”外，所有h5页面都加上分享按钮
+				if (title.equals("帮助中心")) {
+					headLayout.setVisibility(View.VISIBLE);
+					setHeadInfo(title);
+				} else {
+					headLayout.setVisibility(View.VISIBLE);
+					setHeadInfo(title, R.drawable.share_img);
+				}
+//				if (title.equals("推广返利")) {
+//					headLayout.setVisibility(View.VISIBLE);
+//					setHeadInfo(title, "分享");
+//				}else if (title.equals("邀请奖励")){
+//					headLayout.setVisibility(View.VISIBLE);
+//					setHeadInfo(title, "分享");
+//				}else {
+//					headLayout.setVisibility(View.VISIBLE);
+//					setHeadInfo(title);
+//				}
+
+			}
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+
+		try {
+			resource = intent.getStringExtra("resource");
+		} catch (Exception e) {
+
+		}
+
+		loadData(url, params);
+	}
+
+	@Override
+	public void onClick(View v) {
+		switch (v.getId()) {
+			// case R.id.head_common_right_iv:// 头部右边按钮
+			// showShare(title, content, imageUrl, siteUrl);
+			// break;
+			case R.id.head_common_right_tv:// 邀请记录
+//				setHeadInfo("邀请记录");
+//				webView.loadUrl(Constants.BASE_h5_URL+"personal/rebateList");
+				showShare("我很看好艺条龙金融的这款投资产品，推荐你购买！",
+						"艺条龙金融，星享融战略合作伙伴，银行存管已上线，平台坚持合规运营，致力于打造规范、安全、透明、诚信的网络借贷信息中介平台。",
+						"https://images.etiaolong.com/etialong_logo.png",
+						Constants.BASE_h5_URL);
+				break;
+			case R.id.head_common_right_iv:
+				if (mShareBean != null) {
+					showShare(mShareBean.getTitle(), mShareBean.getSubTitle(), mShareBean.getImgUrl(), mShareBean.getContentUrl());
+				} else {
+					showShare("我很看好艺条龙金融的这款投资产品，推荐你购买！",
+							"艺条龙金融，星享融战略合作伙伴，银行存管已上线，平台坚持合规运营，致力于打造规范、安全、透明、诚信的网络借贷信息中介平台。",
+							"https://images.etiaolong.com/etialong_logo.png",
+							Constants.BASE_h5_URL);
+				}
+				break;
+			case R.id.head_common_back:
+				if (webView.canGoBack()) {
+					goBackUrl();
+				} else {
+					finish();
+				}
+				break;
+			case R.id.bt_webView_confirm:
+				setResult(ConstantValues.RISK_CONFIRM);
+				finish();
+				break;
+			case R.id.bt_webView_cancel:
+				setResult(ConstantValues.RISK_CANCEL);
+				finish();
+				break;
+		}
+	}
+
+	/**
+	 * 共享本地cookie
+	 */
+	private void syncCookie(Context context, String url) {
+		try {
+			CookieSyncManager.createInstance(context);
+
+			CookieManager cookieManager = CookieManager.getInstance();
+			cookieManager.setAcceptCookie(true);
+			cookieManager.removeSessionCookie();// 移除
+			cookieManager.removeAllCookie();
+			String oldCookie = cookieManager.getCookie(url);
+			PersistentCookieStore persistentCookieStore = MyApplication.getCookieStore();
+			for (Cookie cookie : persistentCookieStore.getCookies()) {
+				String cookieString = cookie.getName() + "="
+						+ cookie.getValue() + "; domain=" + cookie.getDomain()
+						+ "; path=" + cookie.getPath();
+				cookieManager.setCookie(Constants.BASE_URL, cookieString);
+				CookieSyncManager.getInstance().sync();
+			}
+			String newCookie = cookieManager.getCookie(url);
+		} catch (Exception e) {
+		}
+	}
+
+	/**
+	 * 把数据加载到界面上
+	 *
+	 * @param params
+	 * @param url
+	 */
+	private void loadData(String url, String params) {
+		WebSettings settings = webView.getSettings();
+		settings.setCacheMode(WebSettings.LOAD_NO_CACHE);//设置缓存模式：不适用缓存
+
+		settings.setUserAgentString(settings.getUserAgentString() + "ETL-android");
+		settings.setJavaScriptEnabled(true);//设置支持localstorage
+		settings.setDomStorageEnabled(true);
+
+		MyApplication.getInstance().setWebViewSetting(webView, false);
+		registerListener();
+		// 设置本地调用对象及其接口
+//		webView.addJavascriptInterface(new JavaScriptInterface(), "ytlObj");
+		webView.addJavascriptInterface(new JsInterface(), "JsInterface");
+		url = Uri.parse(url) + "";
+		syncCookie(this, url);
+		switch (webViewMethod) {
+			case Constants.WEBVIEW_GET:
+				webView.loadUrl(url);
+				break;
+			case Constants.WEBVIEW_POST:
+				try {
+					String bianma = new String(params.getBytes(), "utf-8");
+					webView.postUrl(url, bianma.getBytes());
+				} catch (UnsupportedEncodingException e) {
+					e.printStackTrace();
+				}
+				break;
+			default:
+				break;
+		}
+	}
+
+	private void registerListener() {
+		webView.setWebChromeClient(new WebChromeClient() {
+			@Override
+			public void onReceivedTitle(WebView view, String hTitle) {
+				super.onReceivedTitle(view, hTitle);
+				if (title!=null&&"艺条龙金融".equals(title)){
+					title=hTitle;
+					setHeadInfo(hTitle, R.drawable.share_img);
+				}
+			}
+
+			@Override
+			public boolean onJsAlert(WebView view, String url, String message, JsResult result) {
+				return super.onJsAlert(view, url, message, result);
+			}
+		});
+		webView.setWebViewClient(new WebViewClient() {
+			@Override
+			public boolean shouldOverrideUrlLoading(WebView view, String url) {
+				switch (url) {
+					// case "http://wx.etiaolong.com/usercge.html?goonRecharge"://
+					// 充值失败、继续充值
+					// WebViewActivity.this.finish();
+					// break;
+					case "https://wx.etiaolong.com/usercash.html":// 提现失败、继续提现
+						WebViewActivity.this.finish();
+						break;
+					case "https://wx.etiaolong.com/personcenter.html":
+						Intent intent = new Intent(WebViewActivity.this, MainActivity.class);
+						intent.putExtra(Constants.INTENT, Constants.OPEN_SETTING);
+						startActivity(intent);
+						break;
+
+					default:
+						break;
+				}
+				if (url.contains("transaction")) {// 资金流水
+					getIntentValuesMap().put("formPage", "personCentre");
+					startActivity(MoneyWaterActivity.class, getIntentValuesMap());
+					WebViewActivity.this.finish();
+				} else if (url.contains("goonRecharge")) {// 继续充值
+					WebViewActivity.this.finish();
+				} else if (url.contains("gotoInvestment")) {// 去投资
+					Intent intent2 = new Intent(WebViewActivity.this, MainActivity.class);
+					intent2.putExtra(Constants.INTENT, Constants.OPEN_INVEST);
+					startActivity(intent2);
+				}
+				return super.shouldOverrideUrlLoading(view, url);
+			}
+
+			@Override
+			public void onPageFinished(WebView view, String url) {
+				super.onPageFinished(view, url);
+				cancelPro();
+				urlNow = url;
+				if (MyApplication.getInstance().isLogin) {
+					if (totalInfoBean != null && totalInfoBean.data != null) {
+						String temp = new Gson().toJson(totalInfoBean.data);
+						if (TextUtils.isEmpty(temp)) {
+							webView.loadUrl("javascript:THAndroidJS.syncUserInfo()");
+						} else {
+							webView.loadUrl("javascript:THAndroidJS.syncUserInfo(" + temp + ")");
+						}
+					}
+				} else {
+					webView.loadUrl("javascript:THAndroidJS.syncUserInfo()");
+				}
+				switch (url) {
+					case Constants.BASE_h5_URL + "carRisk":
+						riskLayout.setVisibility(View.VISIBLE);
+						break;
+					case Constants.BASE_h5_URL + "risk":
+						riskLayout.setVisibility(View.VISIBLE);
+						break;
+				}
+			}
+		});
+	}
+
+	/**
+	 * js调android方法
+	 *
+	 * @author lenovo
+	 */
+	public class JsInterface {
+		@JavascriptInterface
+		public void getDataWithJs(String value) {
+			if (value != null) {
+				JSONObject jsonObject;
+				try {
+					jsonObject = new JSONObject(value.substring(1, value.length() - 1));
+					String type = jsonObject.getString("type");
+					if (type.equals("1")) {// 跳转到投资列表
+						Intent intent = new Intent();
+						setResult(RESULT_OK, intent);
+						finish();
+					} else if (type.equals("0")) {// 分享
+						String titles = jsonObject.getString("title");
+						String content = jsonObject.getString("message");
+						String imageUrl = jsonObject.getString("img");
+						String siteUrl = jsonObject.getString("url");
+						if (title != null && title.equals("推广返利")) {
+							siteUrl = siteUrl + "?fromcode=" + totalInfoBean.data.username;
+						}
+						showShare(titles, content, imageUrl, siteUrl);
+					}
+				} catch (JSONException e) {
+					e.printStackTrace();
+				}
+			}
+		}
+
+		//跳转至登录页面
+		@JavascriptInterface
+		public void goToLogin() {
+			Intent intent = new Intent(WebViewActivity.this, LoginActivity.class);
+			startActivity(intent);
+		}
+
+		//跳转至登录页面
+		@JavascriptInterface
+		public void goToLogin(String json) {
+			Intent intent = new Intent(WebViewActivity.this, LoginActivity.class);
+			intent.putExtra("action", json);
+			try {
+				JSONObject jsonObject = new JSONObject(json);
+				if (jsonObject.has("needLogin")) {
+					needLogin = jsonObject.getBoolean("needLogin");
+				}
+			} catch (JSONException e) {
+
+			}
+			startActivityForResult(intent, 27);   //27是requestCode
+		}
+
+		//重新测评
+		/*@JavascriptInterface
+		public void appraisalAgain() {
+			webView.loadUrl(Constants.BASE_h5_URL+"appraisal");
+			webView.reload();
+		}*/
+		//跳转至投资列表页面
+		@JavascriptInterface
+		public void goToInvest() {
+			Intent intent = new Intent(WebViewActivity.this, MainActivity.class);
+			intent.putExtra(Constants.INTENT, Constants.OPEN_INVEST);
+			startActivity(intent);
+		}
+
+		//跳转至个人中心-我的奖励
+		@JavascriptInterface
+		public void goToAward() {
+			if (checkLogin()) {
+				Intent intentTem = new Intent(WebViewActivity.this, MyAwardActivity.class);
+				intentTem.putExtra("url", Constants.BASE_h5_URL + "personal/myreward/experinence-gold");
+				intentTem.putExtra(Constants.WEBVIEW_METHOD_KEY, Constants.WEBVIEW_GET);
+				startActivityForResult(intentTem, ConstantValues.TASTE_MONEY);
+			}
+		}
+
+		//跳转至个人中心-用户提现
+		@JavascriptInterface
+		public void goToPayout(String usable_money) {
+			if (!check())
+				return;
+
+			Intent intent = new Intent(WebViewActivity.this, PayoutActivity.class);
+			intent.putExtra(Constants.USABLE_MONEY, usable_money);
+			startActivity(intent);
+		}
+
+		//跳转至标的详情页
+		@JavascriptInterface
+		public void goToBidDetail(String id) {
+			Intent i = new Intent(WebViewActivity.this, ProductDetailActivity.class);
+			i.putExtra(Constants.BID_KEY, id);
+//			i.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+			WebViewActivity.this.startActivity(i);
+		}
+
+		//跳转至回款日历页面
+		@JavascriptInterface
+		public void goToRepayCal() {
+			if (checkLogin()) {
+				startActivity(RepaymentCalendarActivity.class);
+			}
+		}
+
+		/*h5直接调用原生分享方法*/
+		@JavascriptInterface
+		public void callShare() {
+			if (mShareBean != null) {
+				showShare(mShareBean.getTitle(), mShareBean.getSubTitle(), mShareBean.getImgUrl(), mShareBean.getContentUrl());
+			} else {
+				showShare("我很看好艺条龙金融的这款投资产品，推荐你购买！",
+						"艺条龙金融，星享融战略合作伙伴，银行存管已上线，平台坚持合规运营，致力于打造规范、安全、透明、诚信的网络借贷信息中介平台。",
+						"https://images.etiaolong.com/etialong_logo.png",
+						Constants.BASE_h5_URL);
+			}
+		}
+
+		@JavascriptInterface
+		public void callShare(String json) {
+			mShareBean = new Gson().fromJson(json, ShareBean.class);
+			showShare(mShareBean.getTitle(), mShareBean.getSubTitle(), mShareBean.getImgUrl(), mShareBean.getContentUrl());
+		}
+
+		/*h5告诉原生分享什么内容*/
+		@JavascriptInterface
+		public void setAppInfo(String json) {
+			mShareBean = new Gson().fromJson(json, ShareBean.class);
+		}
+
+		/*去往资金存管页面*/
+		@JavascriptInterface
+		public void goToDepositFund() {
+			Intent intent = new Intent(WebViewActivity.this, ApproveActivity.class);
+			startActivity(intent);
+		}
+
+
+		/*存管2.0银行操作结果页面，点击完成跳转*/
+		@JavascriptInterface
+		public void finishDepositOperate() {
+			finish();
+		}
+
+		/*存管2.0银行操作结果页面，点击完成跳转*/
+		@JavascriptInterface
+		public void finishDepositOperate(String type) {
+//开通存管：open
+//充值：recharge
+//提现：withdraw
+//授权：authorize
+//修改、重置交易密码：paymentcode
+//解绑：unbind
+//投资：invest
+			switch (type) {
+				case "open":
+					/*getBundle().putString(Constants.TEL_KEY, phone);
+					getBundle().putString("resource", "webview");
+					startActivity(MoreSettingActivity.class, getBundle());
+					finish();*/
+					if (resource != null && resource.equals("approve")) {
+						setResult(RESULT_OK);
+						finish();
+					} else {
+						finish();
+					}
+					/*Intent intent=new Intent(WebViewActivity.this, MoreSettingActivity.class);
+					startActivity(intent);
+					finish();*/
+					/*Intent intent = new Intent(WebViewActivity.this, MainActivity.class);
+					intent.putExtra(Constants.INTENT, Constants.OPEN_SETTING);
+					startActivity(intent);
+					finish();*/
+					break;
+				case "recharge":
+					finish();
+					break;
+				case "withdraw":
+					finish();
+					break;
+				case "authorize":
+					finish();
+					break;
+				case "paymentcode":
+					finish();
+					break;
+				case "unbind":
+					finish();
+					break;
+				case "invest":
+					//返回个人中心
+					Intent intent = new Intent(WebViewActivity.this, MainActivity.class);
+					intent.putExtra(Constants.INTENT, Constants.OPEN_INVEST);
+					startActivity(intent);
+					break;
+			}
+		}
+
+
+	}
+
+	@Override
+	public void onBackPressed() {
+		if (webView.canGoBack()) {
+			goBackUrl();
+		} else {
+			super.onBackPressed();
+		}
+	}
+
+	/**
+	 * 点击返回键的处理
+	 */
+	private void goBackUrl() {
+		webView.goBack();
+//		Log.e("webView.getUrl();=after" + webView.getUrl());
+		if (webView.getUrl().equals(Constants.BASE_h5_URL + "personal/rebateList")) {
+			setHeadInfo(title, "邀请记录");
+		}
+	}
+
+	@Override
+	protected void onDestroy() {
+		if (webView != null) {
+			// webView.destroy();
+			webView.setVisibility(View.GONE);
+		}
+		super.onDestroy();
+	}
+
+	@Override
+	protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+		if (requestCode == 27 && resultCode == RESULT_OK) {
+			String order = data.getStringExtra("order");
+			if ("refresh".equals(order) && urlNow != null) {
+				loadData(urlNow, null);  //重新调用h5页面
+			}
+		}
+	}
+}
